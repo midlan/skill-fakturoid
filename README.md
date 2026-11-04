@@ -96,3 +96,7 @@ Pravidla specifická pro tvoje účetnictví (např. jak pojmenovávat cesty za 
 ## Upozornění
 
 Skill je pomůcka, ne daňové poradenství. Agent může udělat chybu – před podáním přiznání výsledky zkontroluj.
+
+## Licence
+
+[MIT](LICENSE)
