@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# fa – tenký pomocník pro Fakturoid API v3 (https://www.fakturoid.cz/api/v3)
+#
+# Řeší za tebe: OAuth 2 Client Credentials token (a jeho obnovu po 2 h),
+# povinnou hlavičku User-Agent, slug účtu a JSON hlavičky.
+# Token ani přihlašovací údaje nikdy nevypisuje.
+#
+# Použití:
+#   fa token                         # zajistí platný token, vypíše jen dobu platnosti
+#   fa GET   <cesta>                 # např. fa GET 'accounts/{slug}/inbox_files.json'
+#   fa POST  <cesta> <json|@soubor|->
+#   fa PATCH <cesta> <json|@soubor|->
+#   fa DELETE -y <cesta>             # mazání jen s výslovným -y
+#   fa download <cesta> <výstupní soubor>   # binární stažení (Krabice, přílohy)
+#   fa dataurl <soubor> [název]      # vypíše JSON objekt přílohy {filename, data_url}
+#   fa slug                          # vypíše slug účtu
+#
+# <cesta> je relativní k https://app.fakturoid.cz/api/v3/ ; '{slug}' se nahradí slugem účtu.
+# Tělo odpovědi jde na stdout, HTTP kód na stderr; při kódu >= 400 končí s chybou.
+#
+# Konfigurace (proměnné prostředí):
+#   FAKTUROID_USER_AGENT     povinné, např. "MojeAppka (kontakt@example.org)"
+#   FAKTUROID_CLIENT_ID      volitelné – když chybí i SECRET, spoléhá se na síťovou proxy,
+#   FAKTUROID_CLIENT_SECRET    která k /api/v3/oauth/token přidá HTTP Basic sama
+#   FAKTUROID_SLUG           volitelné – jinak se zjistí z /user.json (první účet)
+#   FAKTUROID_TOKEN_FILE     volitelné – kam ukládat token (výchozí v $XDG_RUNTIME_DIR nebo /tmp)
+#   FAKTUROID_BASE_URL       volitelné – výchozí https://app.fakturoid.cz/api/v3
+
+set -euo pipefail
+umask 077
+
+BASE="${FAKTUROID_BASE_URL:-https://app.fakturoid.cz/api/v3}"
+TOKEN_FILE="${FAKTUROID_TOKEN_FILE:-${XDG_RUNTIME_DIR:-/tmp}/fakturoid-token-$(id -u).json}"
+SLUG_FILE="${TOKEN_FILE%.json}.slug"
+
+die() { echo "fa: $*" >&2; exit 1; }
+
+need() { command -v "$1" >/dev/null 2>&1 || die "chybí program '$1'"; }
+need curl; need jq; need base64
+
+[[ -n "${FAKTUROID_USER_AGENT:-}" ]] || die "nastav FAKTUROID_USER_AGENT, např. 'MojeAppka (kontakt@example.org)' – Fakturoid bez něj vrací 400"
+
+# --- token -------------------------------------------------------------------
+
+token_valid() {
+  [[ -s "$TOKEN_FILE" ]] || return 1
+  local exp now
+  exp=$(jq -r '.expires_at // 0' "$TOKEN_FILE" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  (( exp - now > 300 ))   # aspoň 5 minut rezervy
+}
+
+fetch_token() {
+  local tmp cfg code
+  tmp=$(mktemp); cfg=$(mktemp)          # umask 077 → čitelné jen pro tebe
+  # Přípona .json a hlavička Accept jsou nutné, jinak Fakturoid vrací 415 "Only JSON requests are allowed".
+  # Client ID a Secret musí jít v HTTP Basic, ne v těle (jinak 400 invalid_request).
+  # Bez nich se spoléháme na síťovou proxy, která Basic k /api/v3/oauth/token přidá sama.
+  if [[ -n "${FAKTUROID_CLIENT_ID:-}" && -n "${FAKTUROID_CLIENT_SECRET:-}" ]]; then
+    # přes konfigurační soubor, aby se údaje neobjevily v seznamu procesů
+    printf 'user = "%s:%s"\n' "$FAKTUROID_CLIENT_ID" "$FAKTUROID_CLIENT_SECRET" > "$cfg"
+  fi
+  code=$(curl -sS -o "$tmp" -w '%{http_code}' -X POST "$BASE/oauth/token.json" \
+    --config "$cfg" \
+    -A "$FAKTUROID_USER_AGENT" \
+    -H 'Content-Type: application/json' -H 'Accept: application/json' \
+    -d '{"grant_type":"client_credentials"}') || { rm -f "$tmp" "$cfg"; die "požadavek na token selhal (síť?)"; }
+  rm -f "$cfg"
+  if [[ "$code" != "200" ]]; then
+    local body; body=$(jq -c 'del(.access_token)' "$tmp" 2>/dev/null || head -c 500 "$tmp")
+    rm -f "$tmp"
+    die "token: HTTP $code $body"
+  fi
+  jq --argjson now "$(date +%s)" \
+     '{access_token, token_type, expires_at: ($now + (.expires_in // 7200))}' "$tmp" > "$TOKEN_FILE"
+  rm -f "$tmp"
+  chmod 600 "$TOKEN_FILE"
+}
+
+ensure_token() { token_valid || fetch_token; }
+
+# Konfigurační blok pro curl s hlavičkou Authorization – token se nedostane do argv.
+auth_config() { printf 'header = "Authorization: Bearer %s"\n' "$(jq -r .access_token "$TOKEN_FILE")"; }
+
+# --- slug --------------------------------------------------------------------
+
+get_slug() {
+  if [[ -n "${FAKTUROID_SLUG:-}" ]]; then echo "$FAKTUROID_SLUG"; return; fi
+  if [[ -s "$SLUG_FILE" ]]; then cat "$SLUG_FILE"; return; fi
+  local s
+  s=$(request GET user.json 2>/dev/null | jq -r '.accounts[0].slug // empty')
+  [[ -n "$s" ]] || die "nepodařilo se zjistit slug účtu – nastav FAKTUROID_SLUG"
+  echo "$s" > "$SLUG_FILE"
+  echo "$s"
+}
+
+expand_path() {
+  local p="${1#/}"
+  if [[ "$p" == *"{slug}"* ]]; then p="${p//\{slug\}/$(get_slug)}"; fi
+  echo "$p"
+}
+
+# --- requests ----------------------------------------------------------------
+
+# request METHOD PATH [BODY]  -> tělo na stdout, kód na stderr
+request() {
+  local method="$1" path="$2" body="${3:-}" tmp code attempt
+  local data=()
+  if [[ -n "$body" ]]; then
+    if [[ "$body" == "-" ]]; then data=(--data-binary @-)
+    elif [[ "$body" == @* ]]; then data=(--data-binary "$body")
+    else data=(--data-binary "$body"); fi
+  fi
+  for attempt in 1 2; do
+    ensure_token
+    tmp=$(mktemp)
+    code=$(curl -sS -o "$tmp" -w '%{http_code}' -X "$method" "$BASE/$path" \
+      --config <(auth_config) \
+      -A "$FAKTUROID_USER_AGENT" \
+      -H 'Accept: application/json' -H 'Content-Type: application/json' \
+      "${data[@]}") || { rm -f "$tmp"; die "$method $path: síťová chyba"; }
+    if [[ "$code" == "401" && $attempt == 1 && -z "$body" ]]; then
+      rm -f "$tmp" "$TOKEN_FILE"; continue      # token mohl vypršet – jednou obnovit
+    fi
+    break
+  done
+  cat "$tmp"; rm -f "$tmp"
+  echo "HTTP $code" >&2
+  [[ "$code" -lt 400 ]]
+}
+
+download() {
+  local path="$1" out="$2" code attempt
+  for attempt in 1 2; do
+    ensure_token
+    code=$(curl -sS -L -o "$out" -w '%{http_code}' "$BASE/$path" \
+      --config <(auth_config) -A "$FAKTUROID_USER_AGENT") || die "download $path: síťová chyba"
+    if [[ "$code" == "401" && $attempt == 1 ]]; then rm -f "$TOKEN_FILE"; continue; fi
+    break
+  done
+  echo "HTTP $code" >&2
+  if [[ "$code" -ge 400 ]]; then rm -f "$out"; return 1; fi
+}
+
+dataurl() {
+  local f="$1" name="${2:-$(basename "$1")}" mime
+  [[ -f "$f" ]] || die "soubor '$f' neexistuje"
+  mime=$(file -b --mime-type "$f" 2>/dev/null || echo application/octet-stream)
+  case "${f,,}" in *.isdoc|*.isdocx) mime=application/xml ;; esac
+  jq -n --arg fn "$name" --arg du "data:$mime;base64,$(base64 -w0 "$f")" '{filename: $fn, data_url: $du}'
+}
+
+# --- main --------------------------------------------------------------------
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  token)
+    ensure_token
+    echo "token platný do $(date -d "@$(jq -r .expires_at "$TOKEN_FILE")" '+%F %T %Z')"
+    ;;
+  slug) get_slug ;;
+  GET|get)       [[ $# -ge 1 ]] || die "použití: fa GET <cesta>"; request GET "$(expand_path "$1")" ;;
+  POST|post)     [[ $# -ge 2 ]] || die "použití: fa POST <cesta> <json|@soubor|->"; request POST "$(expand_path "$1")" "$2" ;;
+  PATCH|patch)   [[ $# -ge 2 ]] || die "použití: fa PATCH <cesta> <json|@soubor|->"; request PATCH "$(expand_path "$1")" "$2" ;;
+  DELETE|delete)
+    [[ "${1:-}" == "-y" ]] || die "mazání je nevratné – spusť jako 'fa DELETE -y <cesta>' až po souhlasu uživatele"
+    shift; [[ $# -ge 1 ]] || die "použití: fa DELETE -y <cesta>"
+    request DELETE "$(expand_path "$1")"
+    ;;
+  download)      [[ $# -ge 2 ]] || die "použití: fa download <cesta> <výstup>"; download "$(expand_path "$1")" "$2" ;;
+  dataurl)       [[ $# -ge 1 ]] || die "použití: fa dataurl <soubor> [název]"; dataurl "$@" ;;
+  ""|-h|--help|help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "neznámý příkaz '$cmd' (fa help)" ;;
+esac

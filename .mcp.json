@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fakturoid": {
+      "type": "http",
+      "url": "https://app.fakturoid.cz/mcp/v1/"
+    }
+  }
+}
