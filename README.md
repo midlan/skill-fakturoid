@@ -54,6 +54,24 @@ Proč ne jinak – na co jsme narazili:
 - **Path prefix je důležitý.** Basic secret bez prefixu by se přidával ke všem voláním API a přebil by Bearer token.
 - **Fakturoid MCP jako network secret** (pokud ho používáš) omez prefixem `/mcp/v1/`, ať nezasahuje do `/api/v3/`.
 
+#### Spuštění jedním klikem (záložka)
+
+Skill se do cloudového sezení dostane s repem: sezení načte `.claude/skills/` z repozitáře, který k němu připojíš. Prostředí samo skilly neobsahuje. Abys nemusel prostředí a repo vybírat pokaždé, ulož si do prohlížeče záložku:
+
+```
+https://claude.ai/code/new?repo=midlan%2Fskill-fakturoid&environment=Fakturoid
+```
+
+Otevře nové sezení s předvybraným repem (větev `main`) a prostředím `Fakturoid`. Nic neodesílá, zadání napíšeš sám. Uprav si:
+
+- `environment` – název tvého prostředí (URL-kódovaný, mezera = `%20`),
+- `repo` – pokud používáš fork, jeho `owner%2Fnázev`,
+- volitelně `&q=…` – předvyplněný text, např. `&q=Zpracuj%20Krabici%20ve%20Fakturoidu`.
+
+Parametry `repo`, `branch`, `q` a `mode` jsou [zdokumentované](https://support.claude.com/en/articles/14898120-open-the-claude-mobile-app-with-a-link). Parametr `environment` oficiálně zdokumentovaný není – v době psaní funguje, ale může přestat; pak prostředí přepni ručně.
+
+Alternativně můžeš skill nahrát do svého účtu na claude.ai – pak se načítá ve všech cloudových sezeních bez výběru repa, ale změny z repa se do účtu samy nepropisují a `.mcp.json` nepřenese.
+
 ### Lokálně a v ostatních nástrojích
 
 Nastav `FAKTUROID_CLIENT_ID`, `FAKTUROID_CLIENT_SECRET` a `FAKTUROID_USER_AGENT` (např. v shellu nebo ve správci tajemství) a nainstaluj skill do složky svého nástroje:
