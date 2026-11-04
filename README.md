@@ -16,7 +16,7 @@ Obsah:
 | Cesta | Co to je |
 |---|---|
 | `skills/fakturoid/SKILL.md` | samotný skill – postup a pravidla |
-| `skills/fakturoid/scripts/fa` | pomocník pro API (token, User-Agent, slug, stahování, přílohy) – potřebuje `bash`, `curl`, `jq` |
+| `skills/fakturoid/scripts/fa` | pomocník pro API a nahrávání přes MCP (token, User-Agent, slug, stahování, přílohy) – potřebuje `bash`, `curl`, `jq` |
 | `.claude/skills/fakturoid` | odkaz na skill, aby ho Claude Code načetl po otevření repa |
 | `.mcp.json` | volitelně Fakturoid MCP konektor pro Claude Code |
 
@@ -65,9 +65,11 @@ Nastav `FAKTUROID_CLIENT_ID`, `FAKTUROID_CLIENT_SECRET` a `FAKTUROID_USER_AGENT`
 | Gemini CLI | `~/.gemini/skills/fakturoid` |
 | ostatní | podle dokumentace nástroje |
 
-## Fakturoid MCP (volitelné)
+## Fakturoid MCP (doporučeno)
 
-Fakturoid má i [MCP server](https://www.fakturoid.cz/podpora/automatizace/mcp-server) na `https://app.fakturoid.cz/mcp/v1/` (přihlášení přes OAuth ve Fakturoidu). Skill ho nepotřebuje – API pokrývá vše a navíc umí stahovat a mazat soubory z Krabice a upravovat existující náklady. `.mcp.json` v repu ho zpřístupní v Claude Code; v jiných nástrojích ho přidej podle jejich dokumentace (Cursor `.cursor/mcp.json`, Codex `~/.codex/config.toml`).
+Fakturoid má [MCP server](https://www.fakturoid.cz/podpora/automatizace/mcp-server) na `https://app.fakturoid.cz/mcp/v1/` (přihlášení přes OAuth ve Fakturoidu). **Skill ho používá přednostně**, protože volání přes MCP jsou zatím neomezená, zatímco požadavky na API v3 se počítají do limitu podle tarifu. API slouží jen na to, co MCP neumí: stažení a smazání souborů z Krabice a úpravu existujícího nákladu (a jako záloha, když MCP není připojené). Přílohy se nahrávají přes upload token z MCP (`fa mcp-upload`), takže limit API také nečerpají.
+
+`.mcp.json` v repu ho zpřístupní v Claude Code; v jiných nástrojích ho přidej podle jejich dokumentace (Cursor `.cursor/mcp.json`, Codex `~/.codex/config.toml`).
 
 ## Vlastní zvyklosti
 

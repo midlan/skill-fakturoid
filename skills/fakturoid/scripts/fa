@@ -13,6 +13,9 @@
 #   fa DELETE -y <cesta>             # mazání jen s výslovným -y
 #   fa download <cesta> <výstupní soubor>   # binární stažení (Krabice, přílohy)
 #   fa dataurl <soubor> [název]      # vypíše JSON objekt přílohy {filename, data_url}
+#   fa mcp-upload <upload_path> <upload_token> <soubor>
+#                                    # nahraje soubor přes jednorázový token z MCP
+#                                    # (expenses.add_attachment / inbox_files.create) – mimo API limit
 #   fa slug                          # vypíše slug účtu
 #
 # <cesta> je relativní k https://app.fakturoid.cz/api/v3/ ; '{slug}' se nahradí slugem účtu.
@@ -25,11 +28,13 @@
 #   FAKTUROID_SLUG           volitelné – jinak se zjistí z /user.json (první účet)
 #   FAKTUROID_TOKEN_FILE     volitelné – kam ukládat token (výchozí v $XDG_RUNTIME_DIR nebo /tmp)
 #   FAKTUROID_BASE_URL       volitelné – výchozí https://app.fakturoid.cz/api/v3
+#   FAKTUROID_HOST           volitelné – výchozí https://app.fakturoid.cz (pro mcp-upload)
 
 set -euo pipefail
 umask 077
 
 BASE="${FAKTUROID_BASE_URL:-https://app.fakturoid.cz/api/v3}"
+HOST="${FAKTUROID_HOST:-https://app.fakturoid.cz}"
 TOKEN_FILE="${FAKTUROID_TOKEN_FILE:-${XDG_RUNTIME_DIR:-/tmp}/fakturoid-token-$(id -u).json}"
 SLUG_FILE="${TOKEN_FILE%.json}.slug"
 
@@ -38,7 +43,10 @@ die() { echo "fa: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "chybí program '$1'"; }
 need curl; need jq; need base64
 
-[[ -n "${FAKTUROID_USER_AGENT:-}" ]] || die "nastav FAKTUROID_USER_AGENT, např. 'MojeAppka (kontakt@example.org)' – Fakturoid bez něj vrací 400"
+case "${1:-}" in
+  ""|-h|--help|help|dataurl) ;;
+  *) [[ -n "${FAKTUROID_USER_AGENT:-}" ]] || die "nastav FAKTUROID_USER_AGENT, např. 'MojeAppka (kontakt@example.org)' – Fakturoid bez něj vrací 400" ;;
+esac
 
 # --- token -------------------------------------------------------------------
 
@@ -150,6 +158,21 @@ dataurl() {
   jq -n --arg fn "$name" --arg du "data:$mime;base64,$(base64 -w0 "$f")" '{filename: $fn, data_url: $du}'
 }
 
+# Nahrání přes MCP upload token: multipart POST na upload_path s poli file a token.
+# Nepotřebuje API token, takže se nepočítá do limitu API požadavků.
+mcp_upload() {
+  local path="$1" token="$2" f="$3" tmp code
+  [[ -f "$f" ]] || die "soubor '$f' neexistuje"
+  [[ "$path" == /* ]] || path="/$path"
+  tmp=$(mktemp)
+  code=$(curl -sS -o "$tmp" -w '%{http_code}' -X POST "$HOST$path" \
+    -A "$FAKTUROID_USER_AGENT" -H 'Accept: application/json' \
+    -F "token=$token" -F "file=@$f") || { rm -f "$tmp"; die "mcp-upload: síťová chyba"; }
+  cat "$tmp"; rm -f "$tmp"; echo
+  echo "HTTP $code" >&2
+  [[ "$code" -lt 400 ]]
+}
+
 # --- main --------------------------------------------------------------------
 
 cmd="${1:-}"; shift || true
@@ -169,6 +192,7 @@ case "$cmd" in
     ;;
   download)      [[ $# -ge 2 ]] || die "použití: fa download <cesta> <výstup>"; download "$(expand_path "$1")" "$2" ;;
   dataurl)       [[ $# -ge 1 ]] || die "použití: fa dataurl <soubor> [název]"; dataurl "$@" ;;
-  ""|-h|--help|help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
+  mcp-upload)    [[ $# -ge 3 ]] || die "použití: fa mcp-upload <upload_path> <upload_token> <soubor>"; mcp_upload "$1" "$2" "$3" ;;
+  ""|-h|--help|help) sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "neznámý příkaz '$cmd' (fa help)" ;;
 esac
