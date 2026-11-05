@@ -15,7 +15,8 @@ description: Účtování nákladů ve Fakturoidu (fakturoid.cz) přes MCP konek
 | Krabice: seznam | `inbox_files` → `index` | jen bez MCP |
 | Krabice: **stažení souboru** | ✗ | `fa download` |
 | Krabice: **smazání souboru** | ✗ | `fa DELETE -y` |
-| Krabice: nahrání nového souboru | `inbox_files` → `create` (upload token) | jen bez MCP |
+| Krabice: nahrání nového souboru | `inbox_files` → `create` (upload token, `send_to_ocr: false`) | jen bez MCP |
+| Krabice: vytěžování (OCR) Fakturoidem | ✗ **nepoužívat** (`send_to_ocr`) | ✗ **nepoužívat** |
 | náklady: seznam, hledání, detail | `expenses` → `index` / `search` / `show` | jen bez MCP |
 | náklad: založení | `expenses` → `create` | když chybí pole (viz krok 7) |
 | náklad: příloha | `expenses` → `add_attachment` (upload token) | jen bez MCP |
@@ -59,7 +60,7 @@ fa download 'accounts/{slug}/inbox_files/<id>/download' /tmp/doklad.pdf
 - PDF: vytáhni text (`pdftotext -layout`); u skenu nebo nejasného textu si prohlédni stránku jako obrázek.
 - Fotky účtenek: prohlédni obrázek, u drobného písma si ho zvětši/ořízni.
 - **ISDOC** (XML): údaje čti přímo z XML – je to přesnější než PDF (viz níže).
-- Placené vytěžování (`send_to_ocr`) nepotřebuješ.
+- **Vytěžování (OCR) Fakturoidem nikdy nepoužívej** – ani akci `inbox_files` → `send_to_ocr`, ani parametr `send_to_ocr: true` při nahrání (při `create` ho vždy posílej jako `false`). Doklady čteš a vytěžuješ sám (text z PDF, prohlídka obrázku, ISDOC).
 
 Zjisti: dodavatele (název, IČO, DIČ, adresa, země), číslo dokladu, VS, datum vystavení, **DUZP**, splatnost, způsob úhrady, měnu, položky se sazbami DPH, základ a daň po sazbách, celkovou částku, zaokrouhlení, zda jde o přenesenou daňovou povinnost (reverse charge).
 
