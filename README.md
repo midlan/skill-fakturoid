@@ -60,13 +60,14 @@ Proč ne jinak – na co jsme narazili:
 Skill se do cloudového sezení dostane s repem: sezení načte `.claude/skills/` z repozitáře, který k němu připojíš. Prostředí samo skilly neobsahuje. Abys nemusel prostředí a repo vybírat pokaždé, ulož si do prohlížeče záložku:
 
 ```
-https://claude.ai/code/new?repo=midlan%2Fskill-fakturoid&environment=Fakturoid
+https://claude.ai/code/new?repo=midlan%2Fskill-fakturoid&branch=main&environment=Fakturoid
 ```
 
-Otevře nové sezení s předvybraným repem (větev `main`) a prostředím `Fakturoid`. Nic neodesílá, zadání napíšeš sám. Uprav si:
+Otevře nové sezení s předvybraným repem na větvi `main` a prostředím `Fakturoid`. Nic neodesílá, zadání napíšeš sám. Uprav si:
 
 - `environment` – název tvého prostředí (URL-kódovaný, mezera = `%20`),
 - `repo` – pokud používáš fork, jeho `owner%2Fnázev`,
+- `branch` – nech `main`: bez něj sezení začne pracovat na nové větvi místo `main`. Jiné větve (např. `claude%2F…` kvůli testu) se v době psaní z URL nepředvybraly – vyber je ručně,
 - volitelně `&q=…` – předvyplněný text, např. `&q=Zpracuj%20Krabici%20ve%20Fakturoidu`.
 
 Parametry `repo`, `branch`, `q` a `mode` jsou [zdokumentované](https://support.claude.com/en/articles/14898120-open-the-claude-mobile-app-with-a-link). Parametr `environment` oficiálně zdokumentovaný není – v době psaní funguje, ale může přestat; pak prostředí přepni ručně.
