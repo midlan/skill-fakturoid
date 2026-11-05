@@ -9,7 +9,9 @@ Co agent se skillem umí:
 - dohledat, jak se doklady od stejného dodavatele účtovaly dřív, a postupovat stejně,
 - založit **náklad** se správným režimem DPH (tuzemsko, reverse charge EU / třetí země, cizí měna), přílohami a úhradou,
 - po ověření **uklidit Krabici**,
-- **zkontrolovat přiznání k DPH** (XML DPHDP3) a kontrolní hlášení proti dokladům před podáním.
+- **zkontrolovat přiznání k DPH** (XML DPHDP3) a kontrolní hlášení proti dokladům před podáním,
+- udělat **audit nákladů** za delší období (doklady, sazby, DUZP, částky, chybějící pravidelné doklady) a porovnat ho s už podanými přiznáními a KH,
+- navrhnout **opravy po podání**: co jde opravit bez zásahu do podaných období, kdy je potřeba dodatečné přiznání a následné KH a jak je vyplnit.
 
 Obsah:
 

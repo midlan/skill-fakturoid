@@ -1,6 +1,6 @@
 ---
 name: fakturoid
-description: Účtování nákladů ve Fakturoidu (fakturoid.cz) přes MCP konektor a API v3 – zpracování Krabice (stažení a přečtení dokladů včetně ISDOC), založení nákladu s přílohami a platbou, úklid Krabice, kontrola přiznání k DPH a kontrolního hlášení. Use for Fakturoid bookkeeping in the Czech Republic: inbox files, expenses, attachments, payments, VAT return checks.
+description: Účtování nákladů ve Fakturoidu (fakturoid.cz) přes MCP konektor a API v3 – zpracování Krabice (stažení a přečtení dokladů včetně ISDOC), založení nákladu s přílohami a platbou, úklid Krabice, kontrola přiznání k DPH a kontrolního hlášení, audit nákladů za období, porovnání s podanými přiznáními a opravy po podání (dodatečné přiznání, následné KH). Use for Fakturoid bookkeeping in the Czech Republic: inbox files, expenses, attachments, payments, VAT return checks, expense audits and post-filing corrections.
 ---
 
 # Fakturoid – náklady a Krabice (MCP + API v3)
@@ -22,7 +22,9 @@ description: Účtování nákladů ve Fakturoidu (fakturoid.cz) přes MCP konek
 | náklad: příloha | `expenses` → `add_attachment` (upload token) | jen bez MCP |
 | náklad: **úprava existujícího** | ✗ | `fa PATCH` |
 | náklad: úhrada | `expenses` → `mark_as_paid` | `fa POST …/payments.json` (částečná úhrada, `native_amount`) |
-| kontakty | `subjects` → `search` / `create` / `show` | jen bez MCP |
+| náklad: **změna platby** | ✗ | platbu upravit nejde: `fa DELETE -y` + `fa POST` (viz krok 8) |
+| kontakty | `subjects` → `search` / `create` / `show` | úprava: `fa PATCH …/subjects/<id>.json` |
+| pravidelné náklady (šablony) | ✗ | ✗ – jen v aplikaci, uprav je ručně |
 | vydané faktury | `invoices` → `index` (`issued_from`, `issued_to`) | jen bez MCP |
 | souhrny za období | `reports` → `yearly` | – |
 
@@ -85,9 +87,20 @@ Pozor na skupiny firem s více entitami (např. americká mateřská firma vs. i
 
 Časté omyly: jízdenky MHD a vlaků mají **12 %**, ne 21 %. Souhrnné doklady za palivo (CCS apod.) obsahují slevy jako samostatné záporné položky – převezmi je. Součet základu a daně po sazbách musí sedět na haléř s dokladem; jinak uprav jednotkové ceny nebo režim.
 
+Další pasti:
+- **Haléřové rozdíly v DPH:** Fakturoid počítá DPH po položkách, doklad často ze součtu. Má-li doklad ceny vč. DPH (účtenky, e-shopy), zadej `from_total_with_vat` s cenami vč. DPH. Když DPH nesedí o haléř, zkus druhý režim nebo uprav jednu položku.
+- **Zaokrouhlení celkové částky** (`PayableRoundingAmount`, „Zaokrouhlení“ na účtence) → `round_total: true`. Mění jen celkovou částku, ne základ a DPH. Platbu zapisuj na zaokrouhlenou částku.
+- **Co není daňový doklad:** potvrzení objednávky, účtenka/„receipt“ o platbě kartou, zálohová faktura (proforma). Nabití kreditu nebo předplacené karty je záloha, ne plnění. Palivo z kreditu přijde v souhrnném dokladu, tak ho neúčtuj dvakrát.
+- **Reverse charge:** do `original_number` patří **číslo faktury**, ne číslo účtenky. To jde do KH A.2.
+- **Dodavatel z EU, který účtuje českou DPH bez českého DIČ** (např. servisní poplatky platforem): odpočet je sporný. Upozorni uživatele a nech rozhodnutí na něm.
+- **Dobropisy:** spáruj je s původním dokladem (číslo v textu nebo `OriginalDocumentReference` v ISDOC).
+- **Zlevněné jízdenky a jiné neobvyklé položky:** než to nahlásíš jako problém, přečti `private_note` a název položky (např. jízdenka za kolo).
+- **DIČ z EU** ověř ve VIES: `curl https://ec.europa.eu/taxation_customs/vies/rest-api/ms/<CC>/vat/<číslo>` (host musí povolit síťová politika). Výsledek a datum zapiš do `private_note`.
+
 ### 6. Data a období DPH
 - `issued_on` = vystavení, `taxable_fulfillment_due` = DUZP podle dokladu (nikdy ho neměň kvůli období).
-- `received_on` určuje, do kterého období DPH náklad spadne. Výchozí = datum přijetí dokladu.
+- `received_on` určuje, do kterého období DPH náklad spadne. Výchozí = datum přijetí dokladu. **Nesmí být dřív, než byl doklad vystaven.** Pozor u platebních kalendářů, které pronajímatel vystaví zpětně.
+- Souhrnný doklad za období (palivo, „01.01.–31.01.“): DUZP = poslední den období podle PDF, i když ISDOC `TaxPointDate` chybí nebo uvádí jiný den.
 - Pokud období DUZP už bylo podané/uzavřené a uživatel chce odpočet v otevřeném období, nastav `received_on` do otevřeného období (DUZP nech). Rozhodnutí nech na uživateli nebo na jeho souboru zvyklostí.
 - Lhůta pro přiznání a kontrolní hlášení: 25. den po skončení období; připadne-li na víkend/svátek, nejbližší pracovní den.
 
@@ -117,6 +130,12 @@ fa POST 'accounts/{slug}/expenses.json' @/tmp/naklad.json | jq '{id, number, tot
 ### 8. Úhrada
 MCP `expenses` → `mark_as_paid` (`id`, `paid_on`) zaplatí zbývající částku. Částečná úhrada nebo jiná částka v Kč (cizí měna): `fa POST 'accounts/{slug}/expenses/<id>/payments.json' '{"paid_on":"…","native_amount":…}'`.
 
+**Změna platby** (např. po `round_total` nebo po odebrání položky se změnila celková částka): platbu upravit nejde, smaž ji a založ znovu se stejným datem a bankovním účtem. Mazání plateb dělej jen se souhlasem uživatele.
+```bash
+fa DELETE -y 'accounts/{slug}/expenses/<id>/payments/<pid>.json'
+fa POST 'accounts/{slug}/expenses/<id>/payments.json' '{"paid_on":"…","amount":…,"native_amount":…,"bank_account_id":…}'
+```
+
 ### 9. Ověřit
 MCP `expenses` → `show` – porovnej s dokladem: dodavatel, čísla, data, základ a DPH po sazbách, celkem, přílohy, stav `paid`.
 
@@ -131,10 +150,14 @@ fa DELETE -y 'accounts/{slug}/inbox_files/<id>.json'
 fa PATCH 'accounts/{slug}/expenses/<id>.json' '{"private_note":"…","received_on":"2026-09-30"}'
 ```
 U položek posílej jejich `id`, jinak se přidají znovu; smazání položky: `{"lines":[{"id":…, "_destroy":true}]}`. Uzamčený náklad vrátí 403.
+- Údaje dodavatele v nákladu (`supplier_name` atd.) jsou kopie ze založení. Přes API je nezměníš, ani znovu nastaveným `subject_id`. Oprav kontakt (`fa PATCH 'accounts/{slug}/subjects/<id>.json'`) a uživatele požádej o aktualizaci údajů dodavatele u nákladu v aplikaci.
+- Po každé úpravě porovnej `vat_rates_summary`, `received_on` a `taxable_fulfillment_due` před a po. Změna, která do podaného období zasáhnout neměla, ho nesmí změnit (viz „Opravy po podání“).
 
 ## ISDOC
 Hlavní pole: `ID` (číslo dokladu), `IssueDate`, `TaxPointDate` (DUZP), `AccountingSupplierParty` (IČO v `PartyIdentification/ID`, DIČ v `PartyTaxScheme/CompanyID`), `InvoiceLines/InvoiceLine` (`Item/Description`, `InvoicedQuantity`, `UnitPrice` bez DPH, `ClassifiedTaxCategory/Percent`), `TaxTotal`, `LegalMonetaryTotal` (`PayableRoundingAmount` → `round_total: true`), `PaymentMeans` (VS, účet; `PayableAmount` = 0 znamená uhrazeno).
-- `DocumentType` 1 = faktura, **2 = opravný doklad / dobropis** → částky musí být záporné (zkontroluj znaménka položek).
+- `DocumentType` 1 = faktura, **2 = opravný doklad / dobropis** → částky musí být záporné (zkontroluj znaménka položek). V ISDOC jsou kladné.
+- Celkovou částku ověřuj jako součet `TaxSubTotal/TaxInclusiveAmount` + `PayableRoundingAmount`. `LegalMonetaryTotal/TaxInclusiveAmount` u některých dodavatelů zaokrouhlení už obsahuje.
+- `NonTaxedDeposits` (zaplacená proforma) DUZP nemění, DUZP je `TaxPointDate` konečné faktury.
 - Ceny v ISDOC jsou bez DPH → `vat_price_mode: "without_vat"`.
 - Přilož ISDOC i PDF, pokud jsou k dispozici oba.
 
@@ -155,6 +178,59 @@ Ověř hlavičku (`VetaD`: rok, měsíc, `dapdph_forma` B = řádné, D = dodate
 
 Kontrolní hlášení: **A.2** přijatá plnění v režimu reverse charge (ř. 3–13) – každý doklad zvlášť; **A.4/A.5** vydané nad / do 10 000 Kč vč. DPH; **B.2/B.3** přijaté nad / do 10 000 Kč vč. DPH.
 
+Jak Fakturoid exportuje: u poměrného odpočtu (`proportional_vat_deduction`) dává do ř. 40/41 i do KH B.3 **krácený základ i daň**. Položky s 0 % se do přiznání ani KH nedostanou. Rozdělení na B.2/B.3 jde podle celkové částky dokladu vč. DPH (absolutní hodnota, i u dobropisů).
+
+## Audit nákladů za delší období
+
+Když má uživatel zkontrolovat náklady za měsíce nebo roky (jen čtení, nic neměnit, pokud nepožádá):
+1. **Data ukládej do souborů, ne do kontextu.** Projdi `expenses` → `index` po stránkách. Index neobsahuje DUZP ani `received_on`, takže u každého nákladu zavolej `show`. Přílohy stáhni hromadně přes `fa download …/expenses/<id>/attachments/<aid>/download`. ISDOC parsuj skriptem, PDF převeď přes `pdftotext`, porovnání dělej programem a ručně prohlížej jen nesrovnalosti a fotky.
+2. **U každého nákladu kontroluj:**
+   1. doklad (je to daňový doklad, sedí číslo),
+   2. sazby a režim (podle dokladu a předchozích nákladů dodavatele),
+   3. DUZP a `received_on` (dává smysl vzhledem k vystavení a doručení?),
+   4. částky po sazbách na haléř, zaokrouhlení, kurz a dodavatele (IČO, DIČ, kdo skutečně vystavil).
+3. **Úplnost:** u pravidelných dodavatelů (nájem, předplatné, souhrnné doklady za palivo, telekomunikace) projdi měsíc po měsíci. Mezery ověř v e-mailu podle odesílatele: přišel doklad, nebo v tom měsíci nic nebylo? Gmail konektor přílohy stahovat neumí, o soubor požádej uživatele.
+4. **Před hlášením problémů s obdobím porovnej s podanými formuláři** (viz další sekce). Náklad zaúčtovaný po lhůtě přiznání nemusí v podání chybět, přiznání mohlo být podané pozdě.
+5. **Výstup:**
+   - tabulka všech nákladů (body 1–4: OK / problém),
+   - nálezy seřazené podle závažnosti s návrhem opravy a dopadem na přiznání a KH,
+   - seznam chybějících dokladů.
+
+## Kontrola proti podaným přiznáním a KH
+
+Máš-li od uživatele podané soubory, ber přednostně **odeslaná XML z EPO** (`nazevSW="EPO MF ČR"`, název `DPHDP3-<DIČ>-<datum>.xml`; KH bývá v ZIPu). Až pak export z Fakturoidu (`nazevSW="Exportováno službou fakturoid.cz"`), protože uživatel mohl údaje na portálu změnit. Datum podání je ve `VetaD/@d_poddp`, typ v `dapdph_forma`/`khdph_forma` (B řádné, D dodatečné, O opravné, N následné). U dodatečných a následných podání sečti nebo nahraď hodnoty podle typu.
+
+Za každý měsíc seskup náklady podle `received_on` a porovnej:
+- ř. 40/41 a KH B.3 (tuzemsko 21 / 12 %, dokumenty do 10 000 Kč),
+- KH B.2 (každý doklad zvlášť),
+- ř. 5 / 12 / 43 a KH A.2 (reverse charge EU / třetí země).
+
+Shoda na haléř znamená, že se náklady po podání neměnily. Rozdíl ukáže náklad změněný nebo zaúčtovaný po podání.
+
+## Opravy po podání
+
+**Co Fakturoid posílá do výkazů:**
+- období (měsíc podle `received_on`),
+- základ a DPH po sazbách a režimu,
+- u KH B.2 a A.2 navíc DIČ dodavatele, číslo dokladu (`original_number`) a DUZP.
+
+Úprava, která na nic z toho nesáhne, podaná období neovlivní. Bezpečné jsou:
+- přílohy a poznámky,
+- číslo dokladu u nákladů do B.3,
+- `received_on` uvnitř stejného měsíce,
+- `round_total`,
+- položky s 0 %,
+- způsob úhrady a názvy položek.
+
+Ostatní změny v podaném období proveď jen se souhlasem uživatele a s plánem, jak je podat.
+
+- **Neuplatněný odpočet** (chybějící doklad, zapomenutý náklad): založ ho s `received_on` v otevřeném období. Odpočet lze uplatnit později (§ 73, do 3 let), dodatečné přiznání není potřeba. DUZP nech podle dokladu.
+- **Příliš vysoký odpočet** (špatná sazba, odpočet bez dokladu): oprava jde jen přes **dodatečné přiznání** a **následné KH** za původní období.
+- **Dodatečné přiznání (DPHDP3, D) se vyplňuje rozdílově.** Řádky obsahují jen rozdíly zaokrouhlených hodnot oproti podanému přiznání, nedotčené řádky jsou 0. Ř. 66 (`dano`) = 62 − 63 z rozdílů, ř. 64/65 zůstávají prázdné. `d_zjist` = datum zjištění důvodů, text důvodu (`VetaR`) je volitelný a stačí obecný. Export z Fakturoidu (plné hodnoty, typ B) se pro něj nehodí, hodnoty v EPO přepiš a XML před odesláním zkontroluj. Propustnou chybu 49 u ř. 40 (21 % z rozdílu základu ≠ rozdíl daně) způsobuje zaokrouhlení: nech rozdíl zaokrouhlených hodnot.
+- **Následné KH (N)** obsahuje **plné** hodnoty a nahrazuje původní. Export z Fakturoidu stačí v EPO přepnout na „následné“, bez čísla jednacího výzvy.
+- **Platba a sankce:** doplatek je splatný do konce měsíce, ve kterém se dodatečné přiznání podá (VS = DIČ). Penále do 1 000 Kč a úrok z prodlení do 200 Kč se nepředepisují. Následné KH podané z vlastní iniciativy je bez pokuty.
+- **Drobnosti v podaném KH** (haléře, číslo dokladu u A.2/B.2): navrhni zapsat správnou hodnotu do `private_note` a řešit až na výzvu. Rozhodnutí nech na uživateli.
+
 ## Endpointy API v3 (záloha, když MCP nejde nebo nestačí)
 | Účel | Volání (`…` = `accounts/{slug}`) |
 |---|---|
@@ -163,5 +239,5 @@ Kontrolní hlášení: **A.2** přijatá plnění v režimu reverse charge (ř. 
 | Náklady | `GET …/expenses.json` · `…/expenses/search.json?query=` · `…/expenses/<id>.json` · `POST …/expenses.json` · `PATCH …/expenses/<id>.json` · `DELETE …/expenses/<id>.json` |
 | Příloha nákladu: stažení | `download …/expenses/<id>/attachments/<aid>/download` |
 | Platba nákladu | `POST …/expenses/<id>/payments.json` · `DELETE …/expenses/<id>/payments/<pid>.json` |
-| Kontakty | `GET …/subjects/search.json?query=` · `POST …/subjects.json` |
+| Kontakty | `GET …/subjects/search.json?query=` · `POST …/subjects.json` · `PATCH …/subjects/<id>.json` |
 | Vydané faktury | `GET …/invoices.json?issued_from=…&issued_to=…` |
