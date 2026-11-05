@@ -38,6 +38,7 @@ Pomocník `scripts/fa` (vedle tohoto souboru) obstará pro API token, User-Agent
    - `HTTP 401 invalid_client` → chybí nebo nesedí Client ID/Secret (proměnné prostředí nebo síťový secret, viz README repozitáře).
    - Nikdy nehledej, nevypisuj ani neukládej přihlašovací údaje ani token jinam než do souboru, který spravuje `fa`.
 2. Pokud uživatel má soubor s vlastními zvyklostmi (`$FAKTUROID_CONVENTIONS`, výchozí `~/.config/fakturoid/conventions.md`), přečti ho a řiď se jím – má přednost před obecnými pravidly níže.
+   - Je-li nastavená `FAKTUROID_CONVENTIONS_REPO` (`owner/repo`, soukromé repo se zvyklostmi) a soubor zvyklostí chybí: najdi klon v pracovních složkách (v cloudu `/home/user/<repo>`). Když tam není, připoj repo do sezení (v Claude Code v cloudu nástroj `add_repo`, přístup `read`) a naklonuj ho, jak nástroj řekne. Čti `$FAKTUROID_CONVENTIONS`, pokud je nastavená, jinak `conventions.md` v kořeni klonu. Udělej to hned na začátku, bez ptaní – uživatel to nastavením proměnné povolil. Když se připojení nepovede, řekni to a pokračuj bez zvyklostí.
 
 ## Bezpečnost
 

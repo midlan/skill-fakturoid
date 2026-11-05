@@ -32,6 +32,7 @@ Skript `fa` potřebuje tyto proměnné prostředí:
 | `FAKTUROID_CLIENT_ID`, `FAKTUROID_CLIENT_SECRET` | přihlašovací údaje; vynech je, pokud je přidává síťová proxy (viz Claude Code v cloudu) |
 | `FAKTUROID_SLUG` | volitelně; jinak se zjistí z `/user.json` |
 | `FAKTUROID_CONVENTIONS` | volitelně cesta k souboru s tvými účetními zvyklostmi (výchozí `~/.config/fakturoid/conventions.md`) |
+| `FAKTUROID_CONVENTIONS_REPO` | volitelně soukromé repo se zvyklostmi (`owner/repo`); agent si ho v sezení připojí a čte z něj `conventions.md` (viz Vlastní zvyklosti) |
 
 ### Claude Code v cloudu (claude.ai/code) – klíče, které agent nevidí
 
@@ -92,6 +93,8 @@ Fakturoid má [MCP server](https://www.fakturoid.cz/podpora/automatizace/mcp-ser
 ## Vlastní zvyklosti
 
 Pravidla specifická pro tvoje účetnictví (např. jak pojmenovávat cesty za klienty, do kterého období posouvat pozdě dodané doklady, které výdaje účtovat s poměrným odpočtem) dej do `~/.config/fakturoid/conventions.md` nebo jinam a nastav `FAKTUROID_CONVENTIONS`. Skill je přečte a upřednostní před obecnými pravidly. Do tohoto veřejného repa je nepiš.
+
+**V cloudu bez klikání navíc:** záložka umí předvybrat jen jedno repo a kontejner se po sezení maže. Dej proto zvyklosti do soukromého repa (soubor `conventions.md` v kořeni) a do proměnných prostředí přidej `FAKTUROID_CONVENTIONS_REPO=owner/repo`. Agent si repo na začátku práce sám připojí a naklonuje (nástroj `add_repo`), stačí záložka jen na tento skill. Repo musí být dostupné přes tvůj připojený GitHub (Claude GitHub App).
 
 ## Upozornění
 
