@@ -80,7 +80,7 @@ Pozor na skupiny firem s více entitami (např. americká mateřská firma vs. i
 | Tuzemský plátce, běžný doklad | `vat_price_mode: "from_total_with_vat"` pro účtenky s cenami vč. DPH, jinak `without_vat`; sazby podle dokladu (21 / 12 / 0) |
 | Služba od podnikatele z EU | `transferred_tax_liability: true`, `vat_price_mode: "without_vat"`, `vat_rate: 21`, ceny bez daně → přiznání ř. 5 + 43, KH A.2 |
 | Služba ze třetí země (USA…) | totéž → ř. 12 + 43, KH A.2. Faktura bez DPH a bez zmínky o reverse charge je u zahraničních dodavatelů normální |
-| Zboží z EU | totéž, ale v přiznání patří na **ř. 3** + 43 – Fakturoid u zahraničních nákladů nerozlišuje zboží a služby a exportuje vše jako služby. Napiš to do `private_note` a připomeň při kontrole přiznání |
+| Zboží z EU | totéž, ale v přiznání patří na **ř. 3** (12 %: ř. 4) + 43 – **Fakturoid to neumí**: viz „Zboží z EU v exportu přiznání“ níže. Napiš to do `private_note` |
 | Cizí měna | `currency`; kurz Fakturoid obvykle doplní sám (ČNB); jinak `exchange_rate` k DUZP |
 | Část pro soukromou potřebu | `proportional_vat_deduction` (%) – u reverse charge se daň přiznává celá a odpočet jen poměrně, rozdíl se platí |
 | Neodčitatelné / nedaňové | `tax_deductible: false` |
@@ -179,6 +179,19 @@ Ověř hlavičku (`VetaD`: rok, měsíc, `dapdph_forma` B = řádné, D = dodate
 Kontrolní hlášení: **A.2** přijatá plnění v režimu reverse charge (ř. 3–13) – každý doklad zvlášť; **A.4/A.5** vydané nad / do 10 000 Kč vč. DPH; **B.2/B.3** přijaté nad / do 10 000 Kč vč. DPH.
 
 Jak Fakturoid exportuje: u poměrného odpočtu (`proportional_vat_deduction`) dává do ř. 40/41 i do KH B.3 **krácený základ i daň**. Položky s 0 % se do přiznání ani KH nedostanou. Rozdělení na B.2/B.3 jde podle celkové částky dokladu vč. DPH (absolutní hodnota, i u dobropisů).
+
+### Zboží z EU v exportu přiznání (omezení Fakturoidu)
+U nákladu od dodavatele z EU má Fakturoid jen přepínač „Samovyměření DPH?“ (`transferred_tax_liability`); zboží a službu rozlišit **nejde** (ani v UI, ani v API). Export DPHDP3 proto dá **každé** samovyměření od dodavatele z EU na ř. 5/6 (`p_sl23_e`/`dan_psl23_e`, `p_sl5_e`/`dan_psl5_e`), i když jde o pořízení zboží, které patří na ř. 3/4 (`p_zb23`/`dan_pzb23`, `p_zb5`/`dan_pzb5`). Fakturoid to v nápovědě uvádí jako známé omezení. KH (A.2) se to netýká – tam se zboží a služby nerozlišují.
+
+**Upozorni uživatele vždy, a to výslovně a předem** – při zakládání takového nákladu i při každé přípravě přiznání za období, kde je samovyměření od dodavatele z EU. Mnoho uživatelů export z Fakturoidu jen naimportuje do portálu MOJE daně a nic v něm nemění; obecná věta „přesuň na ř. 3“ nestačí.
+- Zeptej se, zda jde o zboží, nebo službu (z dokladu: zboží = fyzické zboží, doprava k němu jde se zbožím).
+- Nabídni, že uživatel pošle export XML z Fakturoidu a ty v něm přesuneš základ a daň daného dokladu z ř. 5/6 na ř. 3/4 (sazba podle dokladu), ostatní řádky beze změny (ř. 43/44, 62–64 se nemění). Upravený soubor uživatel jen naimportuje. Hodnoty po přesunu zaokrouhli po řádcích stejně jako export (celé Kč).
+- Když už je přiznání podané se zbožím na ř. 5: výše daně je správná. Opravit lze jen **opravným přiznáním do konce lhůty**; po lhůtě dodatečné přiznání podat nejde (daň se nemění). Zapiš do `private_note` nákladu, jak bylo podáno, a dál to neřeš, pokud se správce daně nezeptá.
+- Export přiznání ani KH v API v3 není – stahuje ho uživatel v aplikaci.
+
+### Propustné chyby v EPO, které nejsou chybou
+- **Kód 49 u ř. 43** („přesně vypočtená hodnota… rozdíl +0,08 %“): EPO počítá 21 % ze základu ř. 43, Fakturoid sčítá zaokrouhlené daně z ř. 3–13. Hodnota z exportu je správná (daň na výstupu a odpočet u samovyměření se tak rovnají), nech ji.
+- **KH A.2, kód 58/60** (chybí kód státu / VAT ID): u dodavatele ze třetí země (USA…) se kód státu ani VAT ID nevyplňují – číselník nabízí jen státy EU. Nech prázdné.
 
 ## Audit nákladů za delší období
 
